@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dungeons &amp; Dynasties - Save Trainer</title>
+<style>
+  :root { --bg:#16120e; --panel:#221c16; --line:#3a3028; --txt:#eadfcf; --dim:#9b8c79; --acc:#d9893b; --ok:#6cbf6c; --bad:#d35b4f; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--txt); }
+  header { padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0 12px 0 0; color:var(--acc); }
+  main { padding:16px 20px; display:grid; gap:16px; grid-template-columns: 1fr; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  section h2 { margin:0 0 10px; font-size:15px; color:var(--acc); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+  label { font-size:12px; color:var(--dim); display:flex; flex-direction:column; gap:3px; }
+  input[type=number], input[type=text], select { background:#110e0b; color:var(--txt); border:1px solid var(--line); border-radius:4px; padding:5px 7px; width:120px; }
+  input[type=text] { width:220px; }
+  button { background:#3b2f24; color:var(--txt); border:1px solid var(--line); border-radius:4px; padding:6px 12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  button.primary { background:var(--acc); color:#1a1208; border-color:var(--acc); font-weight:600; }
+  button.danger { border-color:var(--bad); }
+  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(170px,1fr)); gap:8px; }
+  .grid label input { width:100%; }
+  .muted { color:var(--dim); font-size:12px; }
+  .warn { background:#3a2a10; border:1px solid #7a5a20; padding:8px 10px; border-radius:6px; font-size:13px; }
+  .status { font-size:13px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); }
+  tr.sel { background:#33291f; }
+  tr:hover { background:#2a221b; cursor:pointer; }
+  .hidden { display:none; }
+  .tabs button.active { border-color:var(--acc); color:var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Dungeons &amp; Dynasties &mdash; Save Trainer</h1>
+  <input type="file" id="file" accept=".json,application/json">
+  <button id="exportBtn" class="primary" disabled>Export edited save</button>
+  <button id="resetBtn" class="danger" disabled>Revert to loaded</button>
+  <span id="status" class="status muted">No save loaded.</span>
+</header>
+
+<main>
+  <div class="warn">
+    Edit a <b>copy</b> of your save and keep your original. This trainer does not change the <code>sig</code> field,
+    and the save already contains <code>"tampered": true</code>. The game may reject or flag edited saves.
+    This is an ironman save (<code>"ironman": true</code>), so keep a backup of the original.
+  </div>
+
+  <section id="resSec" class="hidden">
+    <h2>Guild resources</h2>
+    <div class="grid" id="resGrid"></div>
+    <div class="row" style="margin-top:10px">
+      <button id="resMax">Set gold/renown/reserve to high values</button>
+    </div>
+  </section>
+
+  <section id="heroSec" class="hidden">
+    <h2>Roster heroes</h2>
+    <div class="row">
+      <button id="heroMaxAll">Max all selected hero stats</button>
+      <button id="heroFullBody">Full morale/condition, zero stress/fatigue</button>
+      <span class="muted">Selected: <b id="selName">none</b></span>
+    </div>
+    <div style="max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:6px;">
+      <table>
+        <thead><tr><th>Name</th><th>Class</th><th>Role</th><th>Level</th><th>Ability</th><th>Potential</th><th>Stars</th></tr></thead>
+        <tbody id="heroTable"></tbody>
+      </table>
+    </div>
+    <div id="heroEditor" class="hidden" style="margin-top:12px">
+      <div class="row">
+        <label>Level <input type="number" data-path="level" min="1" max="99"></label>
+        <label>Experience <input type="number" data-path="experience" min="0"></label>
+        <label>Current ability <input type="number" data-path="currentAbility" min="0"></label>
+        <label>Potential ability <input type="number" data-path="potentialAbility" min="0"></label>
+        <label>Ability stars <input type="number" data-path="abilityStars" min="0" max="5"></label>
+        <label>Potential stars <input type="number" data-path="potentialStars" min="0" max="5"></label>
+        <label>Morale <input type="number" data-path="morale" min="0" max="100"></label>
+        <label>Condition <input type="number" data-path="condition" min="0" max="100"></label>
+        <label>Stress <input type="number" data-path="stress" min="0" max="100"></label>
+        <label>Fatigue <input type="number" data-path="fatigue" min="0" max="100"></label>
+        <label>Age <input type="number" data-path="age" min="1"></label>
+      </div>
+      <h3 class="muted" style="margin:10px 0 4px">Attributes</h3>
+      <div class="grid" id="attrGrid"></div>
+      <h3 class="muted" style="margin:10px 0 4px">Hidden attributes</h3>
+      <div class="grid" id="hiddenGrid"></div>
+    </div>
+  </section>
+
+  <section id="stashSec" class="hidden">
+    <h2>Stash / armoury items</h2>
+    <div style="max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:6px;">
+      <table>
+        <thead><tr><th>Name</th><th>Slot</th><th>Rarity</th><th>Tier</th><th>Value</th><th>Quality</th></tr></thead>
+        <tbody id="stashTable"></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label>Tier <input type="number" id="itTier" min="1" max="99"></label>
+      <label>Value <input type="number" id="itValue" min="0"></label>
+      <label>Quality (0-1) <input type="number" id="itQuality" min="0" max="1" step="0.01"></label>
+      <button id="itApply">Apply to selected item</button>
+      <button id="itMaxAll">Max quality of all items</button>
+      <span class="muted">Selected: <b id="itName">none</b></span>
+    </div>
+  </section>
+
+  <section id="addSec" class="hidden">
+    <h2>Add new entries</h2>
+
+    <h3 class="muted">New hero</h3>
+    <div class="row">
+      <label>Name <input type="text" id="nhName" value="Trainer Hero"></label>
+      <label>Class <select id="nhClass"></select></label>
+      <label>Race <select id="nhRace"></select></label>
+      <label>Age <input type="number" id="nhAge" value="24" min="16"></label>
+      <label>Level <input type="number" id="nhLevel" value="15" min="1"></label>
+      <label>All attributes <input type="number" id="nhAttr" value="15" min="1" max="20"></label>
+      <label>Ability / potential <input type="number" id="nhAb" value="190" min="1"></label>
+    </div>
+    <div class="row">
+      <label>Traits (comma separated) <input type="text" id="nhTraits" placeholder="brave, steady" style="width:360px"></label>
+      <button id="nhAdd" class="primary">Add hero</button>
+      <button id="nhDel" class="danger">Remove selected hero</button>
+    </div>
+    <p class="muted">Trait ids seen in your save: <span id="traitList"></span></p>
+
+    <h3 class="muted" style="margin-top:16px">New item</h3>
+    <div class="row">
+      <label>Name <input type="text" id="niName" value="Trainer Blade"></label>
+      <label>Slot <select id="niSlot"><option>weapon</option><option>armour</option><option>trinket</option></select></label>
+      <label>Weapon kind <select id="niKind"><option value="">melee (none)</option><option>ranged</option><option>spell</option></select></label>
+      <label>Rarity <select id="niRarity"><option>common</option><option>uncommon</option><option>rare</option><option>mythic</option><option selected>legendary</option></select></label>
+      <label>Tier <input type="number" id="niTier" value="10" min="1"></label>
+      <label>Quality (0-1) <input type="number" id="niQual" value="1" min="0" max="1" step="0.01"></label>
+      <label>Value <input type="number" id="niVal" value="999" min="0"></label>
+    </div>
+    <div class="row" id="niMods"></div>
+    <div class="row">
+      <button id="niAdd" class="primary">Add item</button>
+      <button id="niDel" class="danger">Remove selected item</button>
+    </div>
+
+    <h3 class="muted" style="margin-top:16px">Staff</h3>
+    <div class="row">
+      <label>Name <input type="text" id="nsName" value="Trainer Staff"></label>
+      <label>Role <select id="nsRole"></select></label>
+      <label>Rarity <select id="nsRarity"><option>common</option><option>uncommon</option><option>rare</option><option>mythic</option><option selected>legendary</option></select></label>
+      <label>Skill <input type="number" id="nsSkill" value="99" min="1" max="100"></label>
+      <label>Wage <input type="number" id="nsWage" value="0" min="0"></label>
+      <button id="nsAdd" class="primary">Add staff</button>
+    </div>
+    <div style="max-height:200px; overflow:auto; border:1px solid var(--line); border-radius:6px;">
+      <table>
+        <thead><tr><th>Name</th><th>Role</th><th>Rarity</th><th>Skill</th><th>Wage</th><th></th></tr></thead>
+        <tbody id="staffTable"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="bondSec" class="hidden">
+    <h2>Relationships (bonds)</h2>
+    <p class="muted">Values in your save range from -45 to 65. Positive = get on well, negative = dislike. Pairs not yet in the save are created when you set them.</p>
+    <div class="row">
+      <label>Hero <select id="bdHero" style="width:200px"></select></label>
+      <label>Set value for all <input type="number" id="bdAll" value="50" min="-100" max="100"></label>
+      <button id="bdAllBtn">Apply to this hero with everyone</button>
+      <label>Everyone with everyone <input type="number" id="bdEvery" value="40" min="-100" max="100"></label>
+      <button id="bdEveryBtn" class="danger">Apply to all pairs</button>
+    </div>
+    <div style="max-height:320px; overflow:auto; border:1px solid var(--line); border-radius:6px;">
+      <table>
+        <thead><tr><th>With</th><th>Class</th><th>Value</th><th>Mentor tie</th></tr></thead>
+        <tbody id="bdTable"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="tieSec" class="hidden">
+    <h2>Staff ties</h2>
+    <p class="muted">Only retired-hero staff have <code>ties</code> in your save (1 of 8). Setting a tie on other staff creates the field, which the game may not expect.</p>
+    <div class="row">
+      <label>Staff <select id="tsStaff" style="width:240px"></select></label>
+      <label>Set all <input type="number" id="tsAll" value="50" min="-100" max="100"></label>
+      <button id="tsAllBtn">Apply to all roster heroes</button>
+    </div>
+    <div style="max-height:300px; overflow:auto; border:1px solid var(--line); border-radius:6px;">
+      <table>
+        <thead><tr><th>Hero</th><th>Class</th><th>Value</th><th>Mentor</th><th></th></tr></thead>
+        <tbody id="tsTable"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (s) => document.querySelector(s);
+  let original = null;   // text as loaded (for revert)
+  let save = null;       // parsed working copy
+  let fileName = "save.json";
+  let heroIdx = -1;
+  let itemIdx = -1;
+
+  const ATTRS = ["weaponSkill","marksmanship","power","spellcraft","armorUse","parry","evasion","criticalStrike",
+    "composure","bravery","decisions","anticipation","teamwork","leadership","concentration","aggression","discipline",
+    "resolve","strength","agility","stamina","vitality","speed","reflexes","threat","mitigation","healing","support",
+    "crowdControl","positioning"];
+  const HIDDEN = ["consistency","bigGame","pressure","deathProneness","loyalty","adaptability","dirtiness"];
+
+  const status = (msg, cls = "muted") => { const s = $("#status"); s.textContent = msg; s.className = "status " + cls; };
+  const g = () => save.guild;
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
+  function setEnabled(on) {
+    $("#exportBtn").disabled = !on;
+    $("#resetBtn").disabled = !on;
+    ["#resSec","#heroSec","#stashSec","#addSec","#bondSec","#tieSec"].forEach(id => $(id).classList.toggle("hidden", !on));
+  }
+
+  // ---------- Loading ----------
+  $("#file").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    fileName = f.name.replace(/\.json$/i, "");
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = String(reader.result);
+        const parsed = JSON.parse(text);
+        if (!parsed || !parsed.guild || typeof parsed.guild !== "object") throw new Error("No 'guild' object found. Is this a Dungeons & Dynasties save?");
+        original = text;
+        save = parsed;
+        heroIdx = -1; itemIdx = -1;
+        setEnabled(true);
+        renderAll();
+        status(`Loaded "${f.name}" - ${g().roster?.length ?? 0} heroes, ${g().stash?.length ?? 0} items.`, "ok");
+      } catch (err) {
+        status("Failed to load: " + err.message, "bad");
+      }
+    };
+    reader.readAsText(f);
+  });
+
+  $("#resetBtn").addEventListener("click", () => {
+    if (!original) return;
+    save = JSON.parse(original);
+    heroIdx = -1; itemIdx = -1;
+    renderAll();
+    status("Reverted to the loaded save.", "ok");
+  });
+
+  // ---------- Export ----------
+  $("#exportBtn").addEventListener("click", () => {
+    const out = JSON.stringify(save, null, 0);
+    const blob = new Blob([out], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${fileName}-trained.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    status("Exported. Check the game's load result. The sig may no longer match.", "ok");
+  });
+
+  // ---------- Resources ----------
+  const RES_FIELDS = [
+    ["gold", "Gold"], ["renown", "Renown"], ["reserve", "Reserve"], ["paydayWages", "Payday wages"],
+    ["secondBook", "Second book"], ["crestPool", "Crest pool"], ["forgeBest", "Forge best"]
+  ];
+
+  function renderResources() {
+    const grid = $("#resGrid");
+    grid.innerHTML = "";
+    RES_FIELDS.forEach(([key, label]) => {
+      if (!(key in g())) return;
+      const l = document.createElement("label");
+      l.textContent = label;
+      const i = document.createElement("input");
+      i.type = "number"; i.value = g()[key];
+      i.addEventListener("change", () => { g()[key] = num(i.value); status(`${label} set to ${g()[key]}.`, "ok"); });
+      l.appendChild(i);
+      grid.appendChild(l);
+    });
+  }
+
+  $("#resMax").addEventListener("click", () => {
+    if ("gold" in g()) g().gold = 999999;
+    if ("renown" in g()) g().renown = 99999;
+    if ("reserve" in g()) g().reserve = 999999;
+    renderResources();
+    status("Gold, renown and reserve raised.", "ok");
+  });
+
+  // ---------- Heroes ----------
+  function renderHeroes() {
+    const tbody = $("#heroTable");
+    tbody.innerHTML = "";
+    (g().roster || []).forEach((h, i) => {
+      const tr = document.createElement("tr");
+      if (i === heroIdx) tr.classList.add("sel");
+      tr.innerHTML = `<td>${esc(h.name)}</td><td>${esc(h.classId)}</td><td>${esc(h.role)}</td>
+        <td>${h.level}</td><td>${h.currentAbility}</td><td>${h.potentialAbility}</td><td>${h.abilityStars}/${h.potentialStars}</td>`;
+      tr.addEventListener("click", () => { heroIdx = i; renderHeroes(); renderHeroEditor(); });
+      tbody.appendChild(tr);
+    });
+    if (heroIdx < 0) $("#heroEditor").classList.add("hidden");
+  }
+
+  function renderHeroEditor() {
+    const h = (g().roster || [])[heroIdx];
+    if (!h) return;
+    $("#heroEditor").classList.remove("hidden");
+    $("#selName").textContent = h.name;
+    document.querySelectorAll("#heroEditor input[data-path]").forEach(inp => {
+      inp.value = h[inp.dataset.path];
+      inp.onchange = () => { h[inp.dataset.path] = num(inp.value); renderHeroes(); };
+    });
+    const ag = $("#attrGrid"); ag.innerHTML = "";
+    ATTRS.forEach(k => ag.appendChild(numField(h.attributes, k, k)));
+    const hg = $("#hiddenGrid"); hg.innerHTML = "";
+    HIDDEN.forEach(k => hg.appendChild(numField(h.hidden, k, k)));
+  }
+
+  function numField(obj, key, label) {
+    const l = document.createElement("label");
+    l.textContent = label;
+    const i = document.createElement("input");
+    i.type = "number"; i.value = obj[key] ?? 0;
+    i.addEventListener("change", () => { obj[key] = num(i.value); });
+    l.appendChild(i);
+    return l;
+  }
+
+  $("#heroMaxAll").addEventListener("click", () => {
+    const h = (g().roster || [])[heroIdx];
+    if (!h) return status("Select a hero first.", "bad");
+    ATTRS.forEach(k => h.attributes[k] = 20);
+    HIDDEN.forEach(k => h.hidden[k] = 20);
+    h.currentAbility = Math.max(h.currentAbility, 200);
+    h.potentialAbility = Math.max(h.potentialAbility, 200);
+    h.abilityStars = 5; h.potentialStars = 5;
+    renderHeroEditor(); renderHeroes();
+    status(`${h.name}: all attributes raised to 20, abilities maxed.`, "ok");
+  });
+
+  $("#heroFullBody").addEventListener("click", () => {
+    const h = (g().roster || [])[heroIdx];
+    if (!h) return status("Select a hero first.", "bad");
+    h.morale = 100; h.condition = 100; h.stress = 0; h.fatigue = 0;
+    renderHeroEditor();
+    status(`${h.name}: morale/condition full, stress/fatigue cleared.`, "ok");
+  });
+
+  // ---------- Stash ----------
+  function renderStash() {
+    const tbody = $("#stashTable");
+    tbody.innerHTML = "";
+    (g().stash || []).forEach((it, i) => {
+      const tr = document.createElement("tr");
+      if (i === itemIdx) tr.classList.add("sel");
+      tr.innerHTML = `<td>${esc(it.name)}</td><td>${esc(it.slot)}</td><td>${esc(it.rarity)}</td>
+        <td>${it.tier}</td><td>${it.value}</td><td>${Number(it.quality).toFixed(2)}</td>`;
+      tr.addEventListener("click", () => {
+        itemIdx = i; renderStash();
+        $("#itName").textContent = it.name;
+        $("#itTier").value = it.tier; $("#itValue").value = it.value; $("#itQuality").value = it.quality;
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  $("#itApply").addEventListener("click", () => {
+    const it = (g().stash || [])[itemIdx];
+    if (!it) return status("Select an item first.", "bad");
+    it.tier = num($("#itTier").value);
+    it.value = num($("#itValue").value);
+    it.quality = Math.min(1, Math.max(0, num($("#itQuality").value)));
+    renderStash();
+    status(`${it.name} updated.`, "ok");
+  });
+
+  $("#itMaxAll").addEventListener("click", () => {
+    (g().stash || []).forEach(it => it.quality = 1);
+    renderStash();
+    status("All stash items set to quality 1.", "ok");
+  });
+
+  // ---------- Add / remove ----------
+  const CLASS_ROLE = {guardian:"tank",warden:"tank",paladin:"tank",blademaster:"dps",arcanist:"dps",ranger:"dps",
+    cleric:"healer",bard:"healer",druid:"healer"};
+  const RACES = ["human","half-orc"];
+  const STAFF_ROLES = ["mentor","scryer","physician","quartermaster","trainer","envoy"];
+  const MODS = ["attackPct","accuracy","critChance","hpPct","mitigation","healPct","healTakenPct"];
+  const MOD_DEFAULT = {attackPct:0.15, accuracy:3, critChance:0.05, hpPct:0.15, mitigation:0.15, healPct:0.15, healTakenPct:0.15};
+  const rid = (n = 11) => Array.from({length:n}, () => "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random()*36)]).join("");
+  // Fields that hold personal history; reset when cloning a template hero.
+  const HERO_RESET = {jobs:0, notable:null, rehearsed:0, deedTotals:{dealt:0,drawn:0,mended:0}, deeds:{}, rescues:0,
+    delves:0, wipeScarred:false, form:[], fixtures:0, standouts:0, memory:{}, moodLog:[], lately:null, lifeDebt:null,
+    milestones:[], seasonsServed:0, accolades:0, honourLog:[], yearLog:[], mark:null, gatherings:{n:0,won:0},
+    errandDay:0, wars:0, bounties:0, away:null, injury:null, earnedTraitIds:[], idleDays:0, equipment:{}};
+
+  function initAdd() {
+    const known = new Set((g().roster||[]).map(h => h.classId));
+    const classes = Object.keys(CLASS_ROLE);
+    $("#nhClass").innerHTML = classes.map(c => `<option>${c}</option>`).join("");
+    $("#nhRace").innerHTML = RACES.map(c => `<option>${c}</option>`).join("");
+    $("#nsRole").innerHTML = STAFF_ROLES.map(c => `<option>${c}</option>`).join("");
+    const traits = new Set();
+    (g().roster||[]).forEach(h => (h.traitIds||[]).forEach(t => traits.add(t)));
+    $("#traitList").textContent = [...traits].sort().join(", ");
+    const box = $("#niMods"); box.innerHTML = "";
+    MODS.forEach(m => {
+      const l = document.createElement("label");
+      l.innerHTML = `${m} <input type="number" step="any" data-mod="${m}" placeholder="off">`;
+      box.appendChild(l);
+    });
+  }
+
+  $("#nhAdd").addEventListener("click", () => {
+    const roster = g().roster;
+    if (!roster) return status("No roster in this save.", "bad");
+    const tpl = roster.find(h => h.attributes) ;
+    if (!tpl) return status("Need at least one existing hero to use as a template.", "bad");
+    const h = JSON.parse(JSON.stringify(tpl));
+    const cls = $("#nhClass").value, a = num($("#nhAttr").value), ab = num($("#nhAb").value);
+    Object.assign(h, JSON.parse(JSON.stringify(HERO_RESET)));
+    h.id = "adv_" + rid();
+    h.name = $("#nhName").value || "Trainer Hero";
+    h.classId = cls; h.role = CLASS_ROLE[cls]; h.raceId = $("#nhRace").value;
+    h.age = num($("#nhAge").value); h.level = num($("#nhLevel").value); h.experience = 0;
+    ATTRS.forEach(k => h.attributes[k] = a);
+    HIDDEN.forEach(k => h.hidden[k] = 12);
+    h.currentAbility = ab; h.potentialAbility = ab; h.abilityStars = 5; h.potentialStars = 5;
+    h.traitIds = $("#nhTraits").value.split(",").map(s => s.trim()).filter(Boolean);
+    h.morale = 100; h.condition = 100; h.stress = 0; h.fatigue = 0;
+    h.joinedDay = g().day ?? h.joinedDay; h.origin = "recruited"; h.post = null;
+    h.joinMark = { day: g().day, atJoin: true, attrs: { ...h.attributes } };
+    h.firstJoin = { day: g().day, rating: ab, a: ATTRS.map(k => h.attributes[k]) };
+    h.yearMark = { day: g().day, attrs: { ...h.attributes } };
+    h.stakes = { conviction: tpl.stakes?.conviction ?? null, vow: null, flaw: tpl.stakes?.flaw ?? null };
+    roster.push(h);
+    heroIdx = roster.length - 1;
+    renderHeroes(); renderHeroEditor();
+    renderBondSelect();
+    status(`Hero "${h.name}" added (${cls}).`, "ok");
+  });
+
+  $("#nhDel").addEventListener("click", () => {
+    const h = (g().roster||[])[heroIdx];
+    if (!h) return status("Select a hero first.", "bad");
+    if (!confirm(`Remove ${h.name}?`)) return;
+    g().roster.splice(heroIdx, 1); heroIdx = -1;
+    renderHeroes();
+    renderBondSelect();
+    status(`${h.name} removed.`, "ok");
+  });
+
+  $("#niSlot").addEventListener("change", () => {
+    $("#niKind").disabled = $("#niSlot").value !== "weapon";
+  });
+  document.addEventListener("input", (e) => {
+    const m = e.target.dataset && e.target.dataset.mod;
+    if (m && e.target.value === "" ) return;
+  });
+
+  $("#niAdd").addEventListener("click", () => {
+    g().stash = g().stash || [];
+    const slot = $("#niSlot").value;
+    const mods = {};
+    document.querySelectorAll("#niMods input[data-mod]").forEach(i => {
+      if (i.value !== "") mods[i.dataset.mod] = num(i.value);
+    });
+    if (!Object.keys(mods).length) {
+      const def = slot === "weapon" ? "attackPct" : slot === "armour" ? "mitigation" : "hpPct";
+      mods[def] = MOD_DEFAULT[def];
+    }
+    const it = {
+      id: "it_trainer_" + rid(8), name: $("#niName").value || "Trainer Item", slot,
+      rarity: $("#niRarity").value, mods, value: num($("#niVal").value),
+      tier: num($("#niTier").value), quality: Math.min(1, Math.max(0, num($("#niQual").value))),
+      history: { day: g().day, how: "market" }
+    };
+    if (slot === "weapon" && $("#niKind").value) it.weaponKind = $("#niKind").value;
+    g().stash.push(it);
+    itemIdx = g().stash.length - 1;
+    renderStash();
+    status(`Item "${it.name}" added to the stash.`, "ok");
+  });
+
+  $("#niDel").addEventListener("click", () => {
+    const it = (g().stash||[])[itemIdx];
+    if (!it) return status("Select a stash item first.", "bad");
+    g().stash.splice(itemIdx, 1); itemIdx = -1;
+    renderStash();
+    status(`${it.name} removed.`, "ok");
+  });
+
+  $("#nsAdd").addEventListener("click", () => {
+    g().staff = g().staff || [];
+    const s = {
+      id: "staff_trn_" + rid(10), name: $("#nsName").value || "Trainer Staff", role: $("#nsRole").value,
+      skill: num($("#nsSkill").value), rarity: $("#nsRarity").value, wage: num($("#nsWage").value)
+    };
+    g().staff.push(s);
+    renderStaff(); renderTieSelect();
+    status(`Staff "${s.name}" (${s.role}) added.`, "ok");
+  });
+
+  function renderStaff() {
+    const tb = $("#staffTable"); tb.innerHTML = "";
+    (g().staff || []).forEach((s, i) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${esc(s.name)}</td><td>${esc(s.role)}</td><td>${esc(s.rarity)}</td>
+        <td><input type="number" value="${s.skill}" style="width:70px" data-k="skill"></td>
+        <td><input type="number" value="${s.wage}" style="width:70px" data-k="wage"></td>
+        <td><button class="danger">Remove</button></td>`;
+      tr.style.cursor = "default";
+      tr.querySelectorAll("input").forEach(inp => inp.addEventListener("change", () => { s[inp.dataset.k] = num(inp.value); }));
+      tr.querySelector("button").addEventListener("click", () => { g().staff.splice(i, 1); renderStaff(); renderTieSelect(); });
+      tb.appendChild(tr);
+    });
+  }
+
+  // ---------- Bonds ----------
+  const bkey = (a, b) => a < b ? a + "|" + b : b + "|" + a;
+  const clampB = (v) => Math.max(-100, Math.min(100, Math.round(num(v))));
+  function setBond(a, b, v) {
+    g().bonds = g().bonds || {};
+    const k = bkey(a, b);
+    if (g().bonds[k]) g().bonds[k].value = clampB(v); else g().bonds[k] = { value: clampB(v) };
+  }
+  function renderBondSelect() {
+    const sel = $("#bdHero"), cur = sel.value;
+    sel.innerHTML = (g().roster||[]).map(h => `<option value="${esc(h.id)}">${esc(h.name)}</option>`).join("");
+    if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+    renderBonds();
+  }
+  function renderBonds() {
+    const tb = $("#bdTable"); tb.innerHTML = "";
+    const me = $("#bdHero").value;
+    (g().roster||[]).filter(h => h.id !== me).forEach(o => {
+      const e = (g().bonds||{})[bkey(me, o.id)];
+      const tr = document.createElement("tr"); tr.style.cursor = "default";
+      const mentor = e && e.mentorId ? ((g().roster||[]).find(x => x.id === e.mentorId)?.name || "yes") : "";
+      tr.innerHTML = `<td>${esc(o.name)}</td><td>${esc(o.classId)}</td>
+        <td><input type="number" min="-100" max="100" style="width:80px" value="${e ? e.value : 0}"></td><td>${esc(mentor)}</td>`;
+      tr.querySelector("input").addEventListener("change", (ev) => { setBond(me, o.id, ev.target.value); ev.target.value = clampB(ev.target.value); });
+      tb.appendChild(tr);
+    });
+  }
+  $("#bdHero").addEventListener("change", renderBonds);
+  $("#bdAllBtn").addEventListener("click", () => {
+    const me = $("#bdHero").value; if (!me) return;
+    (g().roster||[]).forEach(o => { if (o.id !== me) setBond(me, o.id, $("#bdAll").value); });
+    renderBonds(); status("Bonds set for the selected hero.", "ok");
+  });
+  $("#bdEveryBtn").addEventListener("click", () => {
+    const r = g().roster || [];
+    for (let i = 0; i < r.length; i++) for (let j = i + 1; j < r.length; j++) setBond(r[i].id, r[j].id, $("#bdEvery").value);
+    renderBonds(); status("All roster pairs updated.", "ok");
+  });
+
+  // ---------- Staff ties ----------
+  function renderTieSelect() {
+    const sel = $("#tsStaff"), cur = sel.value;
+    sel.innerHTML = (g().staff||[]).map(s => `<option value="${esc(s.id)}">${esc(s.name)} (${esc(s.role)})</option>`).join("");
+    if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+    renderTies();
+  }
+  function curStaff() { return (g().staff||[]).find(s => s.id === $("#tsStaff").value); }
+  function setTie(s, hero, v) {
+    s.ties = s.ties || [];
+    const t = s.ties.find(x => x.id === hero.id);
+    if (t) { t.value = clampB(v); t.name = hero.name; } else s.ties.push({ id: hero.id, name: hero.name, value: clampB(v) });
+  }
+  function renderTies() {
+    const tb = $("#tsTable"); tb.innerHTML = "";
+    const s = curStaff(); if (!s) return;
+    (g().roster||[]).forEach(hr => {
+      const t = (s.ties||[]).find(x => x.id === hr.id);
+      const tr = document.createElement("tr"); tr.style.cursor = "default";
+      tr.innerHTML = `<td>${esc(hr.name)}</td><td>${esc(hr.classId)}</td>
+        <td><input type="number" min="-100" max="100" style="width:80px" value="${t ? t.value : ""}" placeholder="none"></td>
+        <td>${t && t.mentorId ? "mentor" : ""}</td><td><button>Clear</button></td>`;
+      tr.querySelector("input").addEventListener("change", (ev) => {
+        if (ev.target.value === "") return;
+        setTie(s, hr, ev.target.value); ev.target.value = clampB(ev.target.value);
+      });
+      tr.querySelector("button").addEventListener("click", () => {
+        s.ties = (s.ties||[]).filter(x => x.id !== hr.id); renderTies();
+      });
+      tb.appendChild(tr);
+    });
+  }
+  $("#tsStaff").addEventListener("change", renderTies);
+  $("#tsAllBtn").addEventListener("click", () => {
+    const s = curStaff(); if (!s) return;
+    (g().roster||[]).forEach(hr => setTie(s, hr, $("#tsAll").value));
+    renderTies(); status("Ties set for " + s.name + ".", "ok");
+  });
+
+  // ---------- Helpers ----------
+  function esc(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  function renderAll() {
+    renderResources();
+    heroIdx = heroIdx; // keep selection
+    renderHeroes();
+    if (heroIdx >= 0) renderHeroEditor();
+    renderStash();
+    renderStaff();
+    initAdd();
+    renderBondSelect();
+    renderTieSelect();
+  }
+})();
+</script>
+</body>
+</html>
